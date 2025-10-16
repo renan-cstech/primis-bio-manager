@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biometric Multi-Device Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --background: 0 0% 100%;
+            --foreground: 222.2 84% 4.9%;
+            --card: 0 0% 100%;
+            --card-foreground: 222.2 84% 4.9%;
+            --popover: 0 0% 100%;
+            --popover-foreground: 222.2 84% 4.9%;
+            --primary: 222.2 47.4% 11.2%;
+            --primary-foreground: 210 40% 98%;
+            --secondary: 210 40% 96.1%;
+            --secondary-foreground: 222.2 47.4% 11.2%;
+            --muted: 210 40% 96.1%;
+            --muted-foreground: 215.4 16.3% 46.9%;
+            --accent: 210 40% 96.1%;
+            --accent-foreground: 222.2 47.4% 11.2%;
+            --destructive: 0 84.2% 60.2%;
+            --destructive-foreground: 210 40% 98%;
+            --border: 214.3 31.8% 91.4%;
+            --input: 214.3 31.8% 91.4%;
+            --ring: 222.2 84% 4.9%;
+            --radius: 0.5rem;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: hsl(var(--background));
+            color: hsl(var(--foreground));
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: hsl(var(--muted-foreground));
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+        }
+
+        .stat-card h3 {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: hsl(var(--muted-foreground));
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card p {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .tabs {
+            border-bottom: 1px solid hsl(var(--border));
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+        }
+
+        .tab {
+            padding: 0.75rem 1rem;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: hsl(var(--muted-foreground));
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            color: hsl(var(--foreground));
+            border-bottom-color: hsl(var(--foreground));
+        }
+
+        .tab:hover {
+            color: hsl(var(--foreground));
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .card {
+            background: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            font-weight: 600;
+            border-bottom: 1px solid hsl(var(--border));
+            color: hsl(var(--muted-foreground));
+        }
+
+        td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid hsl(var(--border));
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background: hsl(var(--accent));
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .badge-success {
+            background: hsl(142.1 76.2% 36.3% / 0.1);
+            color: hsl(142.1 70.6% 45.3%);
+        }
+
+        .badge-danger {
+            background: hsl(0 84.2% 60.2% / 0.1);
+            color: hsl(0 72.2% 50.6%);
+        }
+
+        .badge-info {
+            background: hsl(221.2 83.2% 53.3% / 0.1);
+            color: hsl(221.2 83.2% 53.3%);
+        }
+
+        .badge-warning {
+            background: hsl(47.9 95.8% 53.1% / 0.1);
+            color: hsl(47.9 95.8% 53.1%);
+        }
+
+        .badge-secondary {
+            background: hsl(var(--secondary));
+            color: hsl(var(--secondary-foreground));
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+        }
+
+        .btn-danger {
+            background: hsl(var(--destructive));
+            color: hsl(var(--destructive-foreground));
+        }
+
+        .btn-danger:hover {
+            opacity: 0.9;
+        }
+
+        .btn-secondary {
+            background: hsl(var(--secondary));
+            color: hsl(var(--secondary-foreground));
+        }
+
+        .btn-secondary:hover {
+            background: hsl(var(--accent));
+        }
+
+        .btn-sm {
+            padding: 0.25rem 0.75rem;
+            font-size: 0.75rem;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+
+        .status-allowed {
+            background: hsl(142.1 76.2% 36.3%);
+        }
+
+        .status-blocked {
+            background: hsl(0 84.2% 60.2%);
+        }
+
+        .connection-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+
+        .connection-connected {
+            background: hsl(142.1 76.2% 36.3%);
+            box-shadow: 0 0 0 2px hsl(142.1 76.2% 36.3% / 0.2);
+            animation: pulse 2s infinite;
+        }
+
+        .connection-recent {
+            background: hsl(47.9 95.8% 53.1%);
+        }
+
+        .connection-offline {
+            background: hsl(215.4 16.3% 46.9%);
+        }
+
+        .connection-never {
+            background: hsl(0 0% 80%);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .device-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .device-card {
+            background: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            transition: all 0.2s;
+        }
+
+        .device-card:hover {
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+
+        .device-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .device-id {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .device-name {
+            color: hsl(var(--muted-foreground));
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+
+        .device-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .device-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            border-radius: var(--radius);
+            padding: 1rem 1.5rem;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+            max-width: 400px;
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .toast-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .toast-message {
+            font-size: 0.875rem;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: hsl(var(--muted-foreground));
+        }
+
+        .connection-status {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            border-radius: var(--radius);
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+        }
+
+        .filter-bar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            align-items: center;
+        }
+
+        .input {
+            padding: 0.5rem 1rem;
+            border: 1px solid hsl(var(--border));
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            flex: 1;
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: hsl(var(--ring));
+        }
+
+        select {
+            padding: 0.5rem 1rem;
+            border: 1px solid hsl(var(--border));
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            background: hsl(var(--background));
+            cursor: pointer;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: hsl(var(--ring));
+        }
+    </style>
+</head>
+<body>
+    <!-- Connection Status -->
+    <div class="connection-status" id="connectionStatus">
+        <span class="status-indicator status-blocked"></span>
+        <span>Connecting...</span>
+    </div>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Biometric Multi-Device Manager</h1>
+            <p>Real-time attendance tracking and device management</p>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Devices</h3>
+                <p id="totalDevices">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Total Logs</h3>
+                <p id="totalLogs">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Active Devices</h3>
+                <p id="activeDevices">0</p>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('logs')">Attendance Logs</button>
+            <button class="tab" onclick="switchTab('devices')">Device Management</button>
+        </div>
+
+        <!-- Logs Tab -->
+        <div class="tab-content active" id="logsTab">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Recent Attendance Logs</h2>
+                </div>
+
+                <div class="filter-bar">
+                    <select id="deviceFilter" onchange="filterLogs()">
+                        <option value="">All Devices</option>
+                    </select>
+                    <button class="btn btn-secondary btn-sm" onclick="refreshLogs()">Refresh</button>
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Device</th>
+                                <th>User ID</th>
+                                <th>Direction</th>
+                                <th>Verification</th>
+                                <th>Date & Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logsTableBody">
+                            <tr>
+                                <td colspan="5" class="loading">Loading logs...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Devices Tab -->
+        <div class="tab-content" id="devicesTab">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Connected Devices</h2>
+                </div>
+
+                <div id="devicesGrid" class="device-grid">
+                    <div class="loading">Loading devices...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectInterval = null;
+        let devices = [];
+        let logs = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            connectWebSocket();
+            loadInitialData();
+        });
+
+        // WebSocket Connection
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                updateConnectionStatus(true);
+                console.log('WebSocket connected');
+
+                // Clear reconnect interval if exists
+                if (reconnectInterval) {
+                    clearInterval(reconnectInterval);
+                    reconnectInterval = null;
+                }
+            };
+
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+
+            ws.onclose = function() {
+                updateConnectionStatus(false);
+                console.log('WebSocket disconnected');
+
+                // Attempt to reconnect
+                if (!reconnectInterval) {
+                    reconnectInterval = setInterval(connectWebSocket, 5000);
+                }
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            if (data.type === 'status') {
+                updateStats(data.data);
+                devices = data.data.devices || [];
+                updateDeviceFilter();
+            } else if (data.type === 'new_log') {
+                addNewLog(data.data);
+                showToast('New Attendance', `User ${data.data.user_id} - ${data.data.io_mode_str}`);
+            } else if (data.type === 'device_status_changed' || data.type === 'device_updated' || data.type === 'device_deleted') {
+                loadDevices();
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            const indicator = statusEl.querySelector('.status-indicator');
+            const text = statusEl.querySelector('span:last-child');
+
+            if (connected) {
+                indicator.className = 'status-indicator status-allowed';
+                text.textContent = 'Connected';
+            } else {
+                indicator.className = 'status-indicator status-blocked';
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        // Load Initial Data
+        async function loadInitialData() {
+            await Promise.all([
+                loadStats(),
+                loadLogs(),
+                loadDevices()
+            ]);
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                updateStats(data);
+                devices = data.devices || [];
+                updateDeviceFilter();
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        function updateStats(data) {
+            document.getElementById('totalDevices').textContent = data.total_devices || 0;
+            document.getElementById('totalLogs').textContent = data.total_logs || 0;
+
+            // Count connected devices (using connection_status)
+            const connectedCount = (data.devices || []).filter(d =>
+                d.connection_status === 'connected' || d.connection_status === 'recent'
+            ).length;
+            document.getElementById('activeDevices').textContent = connectedCount;
+        }
+
+        async function loadLogs() {
+            try {
+                const deviceFilter = document.getElementById('deviceFilter').value;
+                const url = deviceFilter ? `/api/logs?limit=100&device_id=${deviceFilter}` : '/api/logs?limit=100';
+
+                const response = await fetch(url);
+                const data = await response.json();
+                logs = data.logs || [];
+                renderLogs();
+            } catch (error) {
+                console.error('Error loading logs:', error);
+                document.getElementById('logsTableBody').innerHTML = '<tr><td colspan="5" class="empty-state">Error loading logs</td></tr>';
+            }
+        }
+
+        function renderLogs() {
+            const tbody = document.getElementById('logsTableBody');
+
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="empty-state-icon">📋</div><div>No attendance logs yet</div></td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = logs.map(log => `
+                <tr>
+                    <td><span class="badge badge-secondary">${log.device_id}</span></td>
+                    <td><strong>${log.user_id}</strong></td>
+                    <td><span class="badge ${log.io_mode === 1 ? 'badge-success' : 'badge-danger'}">${log.io_mode_str}</span></td>
+                    <td><span class="badge badge-info">${log.verify_mode_str}</span></td>
+                    <td>${log.datetime || log.timestamp}</td>
+                </tr>
+            `).join('');
+        }
+
+        function addNewLog(log) {
+            logs.unshift(log);
+            if (logs.length > 100) logs.pop();
+            renderLogs();
+
+            // Update total logs count
+            const totalLogsEl = document.getElementById('totalLogs');
+            totalLogsEl.textContent = parseInt(totalLogsEl.textContent) + 1;
+        }
+
+        async function loadDevices() {
+            try {
+                const response = await fetch('/api/devices');
+                const data = await response.json();
+                devices = data.devices || [];
+                renderDevices();
+                updateDeviceFilter();
+            } catch (error) {
+                console.error('Error loading devices:', error);
+                document.getElementById('devicesGrid').innerHTML = '<div class="empty-state">Error loading devices</div>';
+            }
+        }
+
+        function renderDevices() {
+            const grid = document.getElementById('devicesGrid');
+
+            if (devices.length === 0) {
+                grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📱</div><div>No devices connected yet</div></div>';
+                return;
+            }
+
+            grid.innerHTML = devices.map(device => {
+                const connectionStatus = device.connection_status || 'never';
+                const connectionLabels = {
+                    'connected': 'Connected',
+                    'recent': 'Recently Active',
+                    'offline': 'Offline',
+                    'never': 'Never Connected'
+                };
+
+                return `
+                <div class="device-card">
+                    <div class="device-card-header">
+                        <div>
+                            <div class="device-id">${device.device_id}</div>
+                            <div class="device-name">${device.device_name || 'Unnamed Device'}</div>
+                        </div>
+                        <span class="badge ${device.status === 'allowed' ? 'badge-success' : 'badge-danger'}">
+                            ${device.status}
+                        </span>
+                    </div>
+                    <div class="device-info">
+                        <div style="display: flex; align-items: center;">
+                            <span class="connection-indicator connection-${connectionStatus}"></span>
+                            <span>${connectionLabels[connectionStatus]}</span>
+                        </div>
+                        <div>Last Seen: ${device.last_seen ? new Date(device.last_seen).toLocaleString() : 'Never'}</div>
+                        <div>Created: ${new Date(device.created_at).toLocaleDateString()}</div>
+                    </div>
+                    <div class="device-actions">
+                        ${device.status === 'allowed' ?
+                            `<button class="btn btn-danger btn-sm" onclick="blockDevice('${device.device_id}')">Block</button>` :
+                            `<button class="btn btn-primary btn-sm" onclick="allowDevice('${device.device_id}')">Allow</button>`
+                        }
+                        <button class="btn btn-secondary btn-sm" onclick="editDevice('${device.device_id}', '${device.device_name || ''}')">Edit</button>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function updateDeviceFilter() {
+            const select = document.getElementById('deviceFilter');
+            const currentValue = select.value;
+
+            select.innerHTML = '<option value="">All Devices</option>' +
+                devices.map(d => `<option value="${d.device_id}" ${d.device_id === currentValue ? 'selected' : ''}>${d.device_id}</option>`).join('');
+        }
+
+        async function blockDevice(deviceId) {
+            if (!confirm(`Block device ${deviceId}?`)) return;
+
+            try {
+                const response = await fetch(`/api/devices/${deviceId}/status`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({status: 'blocked'})
+                });
+
+                if (response.ok) {
+                    showToast('Device Blocked', `Device ${deviceId} has been blocked`);
+                    loadDevices();
+                }
+            } catch (error) {
+                console.error('Error blocking device:', error);
+                showToast('Error', 'Failed to block device');
+            }
+        }
+
+        async function allowDevice(deviceId) {
+            try {
+                const response = await fetch(`/api/devices/${deviceId}/status`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({status: 'allowed'})
+                });
+
+                if (response.ok) {
+                    showToast('Device Allowed', `Device ${deviceId} has been allowed`);
+                    loadDevices();
+                }
+            } catch (error) {
+                console.error('Error allowing device:', error);
+                showToast('Error', 'Failed to allow device');
+            }
+        }
+
+        function editDevice(deviceId, currentName) {
+            const newName = prompt(`Enter name for device ${deviceId}:`, currentName);
+            if (newName === null) return;
+
+            updateDeviceName(deviceId, newName);
+        }
+
+        async function updateDeviceName(deviceId, deviceName) {
+            try {
+                const response = await fetch(`/api/devices/${deviceId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({device_name: deviceName})
+                });
+
+                if (response.ok) {
+                    showToast('Device Updated', `Device name updated`);
+                    loadDevices();
+                }
+            } catch (error) {
+                console.error('Error updating device:', error);
+                showToast('Error', 'Failed to update device');
+            }
+        }
+
+        function filterLogs() {
+            loadLogs();
+        }
+
+        function refreshLogs() {
+            loadLogs();
+        }
+
+        function switchTab(tab) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            if (tab === 'logs') {
+                document.getElementById('logsTab').classList.add('active');
+                loadLogs();
+            } else if (tab === 'devices') {
+                document.getElementById('devicesTab').classList.add('active');
+                loadDevices();
+            }
+        }
+
+        function showToast(title, message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `
+                <div class="toast-title">${title}</div>
+                <div class="toast-message">${message}</div>
+            `;
+
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
