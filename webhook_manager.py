@@ -24,7 +24,8 @@ class WebhookManager:
     """Manages webhook delivery to HRIS system"""
 
     def __init__(self):
-        self.config = hris_config.hris_config
+        # Initialize config - will be refreshed later if needed
+        self._load_config()
         self.webhook_queue = queue.Queue()
         self.rate_limiter = {}
         self.stats = {
@@ -51,6 +52,17 @@ class WebhookManager:
             self.executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix='webhook')
             self.processor_thread = threading.Thread(target=self._process_webhook_queue, daemon=True)
             self.processor_thread.start()
+
+    def _load_config(self):
+        """Load configuration - can be called to refresh config"""
+        self.config = hris_config.hris_config
+
+    def refresh_config(self):
+        """Refresh configuration after environment variables are loaded"""
+        self._load_config()
+        # Update session timeout in case it changed
+        self.session.timeout = self.config.WEBHOOK_TIMEOUT
+        print(f"🔄 WebhookManager config refreshed: URL={self.config.WEBHOOK_URL}")
 
         # Start persistent queue processor
         self.persistent_processor = threading.Thread(target=self._process_persistent_queue, daemon=True)
@@ -99,7 +111,7 @@ class WebhookManager:
                 recovered_count = 0
                 for row in cursor.fetchall():
                     try:
-                        webhook_data = json.loads(row['webhook_data'])
+                        webhook_data = self._reconstruct_webhook_data(row['webhook_data'])
                         webhook_data['persistent_id'] = row['id']
                         webhook_data['retry_count'] = row['retry_count']
 
@@ -116,15 +128,58 @@ class WebhookManager:
         except Exception as e:
             print(f"❌ Failed to recover webhooks: {e}")
 
+    def _reconstruct_webhook_data(self, stored_data: str) -> Dict[str, Any]:
+        """Reconstruct webhook data from storage format, preserving string types"""
+        try:
+            storage_data = json.loads(stored_data)
+
+            # Parse the payload JSON
+            payload_json = storage_data.get('payload_json', '{}')
+            payload = json.loads(payload_json)
+
+            # Force string types for specified fields
+            string_fields = storage_data.get('string_fields', [])
+            if 'logs' in payload and isinstance(payload['logs'], list):
+                for log in payload['logs']:
+                    if isinstance(log, dict):
+                        for field in string_fields:
+                            if field in log:
+                                # Force conversion to string
+                                log[field] = str(log[field])
+
+            # Reconstruct the webhook data structure
+            return {
+                'payload': payload,
+                'signature': storage_data.get('signature', ''),
+                'timestamp': storage_data.get('timestamp', 0)
+            }
+        except Exception as e:
+            print(f"❌ Failed to reconstruct webhook data: {e}")
+            # Fallback to old format
+            return json.loads(stored_data)
+
     def _store_webhook_persistently(self, webhook_data: Dict[str, Any]) -> int:
         """Store webhook data persistently for retry capability"""
         try:
             with db.get_db() as conn:
                 cursor = conn.cursor()
+                # Store payload separately to preserve string types
+                payload = webhook_data.get('payload', {})
+                signature = webhook_data.get('signature', '')
+                timestamp = webhook_data.get('timestamp', 0)
+
+                # Create storage format that preserves string types
+                storage_data = {
+                    'payload_json': json.dumps(payload, separators=(',', ':')),  # Compact JSON
+                    'signature': signature,
+                    'timestamp': timestamp,
+                    'string_fields': ['user_id', 'biometric_id', 'id', 'device_id']  # Fields that must remain strings
+                }
+
                 cursor.execute('''
                     INSERT INTO webhook_queue (webhook_data, status)
                     VALUES (?, 'pending')
-                ''', (json.dumps(webhook_data),))
+                ''', (json.dumps(storage_data),))
                 return cursor.lastrowid
         except Exception as e:
             print(f"❌ Failed to store webhook persistently: {e}")
@@ -176,7 +231,7 @@ class WebhookManager:
 
                     for row in cursor.fetchall():
                         try:
-                            webhook_data = json.loads(row['webhook_data'])
+                            webhook_data = self._reconstruct_webhook_data(row['webhook_data'])
                             webhook_data['persistent_id'] = row['id']
                             webhook_data['retry_count'] = row['retry_count'] + 1
 
@@ -237,26 +292,57 @@ class WebhookManager:
                 return False
 
     def _prepare_webhook_payload(self, attendance_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepare webhook payload with signature"""
+        """Prepare webhook payload with signature in HRIS-compatible format"""
         timestamp = int(time.time())
 
-        payload = {
-            'event_type': 'attendance_log',
-            'timestamp': timestamp,
-            'timestamp_utc': attendance_data.get('datetime_utc', ''),
-            'timestamp_local': attendance_data.get('datetime_local', ''),
-            'timezone': attendance_data.get('timezone', 'UTC'),
-            # CRITICAL: HRIS should use timestamp_local for attendance date records
-            # to avoid timezone boundary issues (e.g., clocking across midnight)
-            'attendance_date': attendance_data.get('datetime_local', '').split(' ')[0],  # YYYY-MM-DD format
-            'attendance_time': attendance_data.get('datetime_local', '').split(' ')[1] if ' ' in attendance_data.get('datetime_local', '') else '',  # HH:MM:SS format
-            'data': attendance_data,
+        # Prepare comprehensive log entry with ALL possible fields HRIS might need
+        # This makes validation less aggressive by providing everything
+        # CRITICAL: Force string conversion BEFORE any JSON processing
+        user_id_val = attendance_data.get('user_id')
+        device_id_val = attendance_data.get('device_id')
+
+        # Ensure these are STRINGS regardless of input type
+        user_id_str = str(user_id_val) if user_id_val is not None else ''
+        device_id_str = str(device_id_val) if device_id_val is not None else ''
+
+        log_entry = {
+            # Primary identifiers - EXPLICITLY CONVERTED TO STRINGS
+            'user_id': user_id_str,
+            'biometric_id': user_id_str,
+            'id': user_id_str,
+
+            # Device information - EXPLICITLY CONVERTED TO STRINGS
+            'device_id': device_id_str,
+            'device_type': attendance_data.get('device_type', 'PRIMARY'),
+
+            # Time information - multiple formats
+            'attendance_time': attendance_data.get('datetime_utc', ''),  # UTC timestamp
+            'datetime': attendance_data.get('datetime_utc', ''),
+            'timestamp': attendance_data.get('timestamp', ''),  # Original device timestamp
+            'timestamp_unix': timestamp,
+
+            # Direction - both int and string formats
+            'io_mode': attendance_data.get('io_mode', 1),  # 0=OUT, 1=IN
+            'direction': attendance_data.get('io_mode_str', 'IN'),  # "IN" or "OUT"
+            'io_mode_str': attendance_data.get('io_mode_str', 'IN'),
+
+            # Verification information
+            'verify_mode': attendance_data.get('verify_mode', 0),  # Verification method code
+            'verify_method': attendance_data.get('verify_mode_str', 'Fingerprint'),
+            'verify_mode_str': attendance_data.get('verify_mode_str', 'Fingerprint'),
+
+            # Additional data
             'source': 'biometric_server',
-            'device_id': attendance_data.get('device_id'),
-            'user_id': attendance_data.get('user_id')
+            'timezone': attendance_data.get('timezone', 'UTC'),
+            'is_duplicate': attendance_data.get('is_duplicate', False)
         }
 
-        # Create HMAC signature
+        # HRIS expects "logs" array format
+        payload = {
+            'logs': [log_entry]
+        }
+
+        # Create HMAC signature using the payload
         payload_json = json.dumps(payload, sort_keys=True)
         signature = hmac.new(
             self.config.WEBHOOK_SECRET.encode(),
@@ -612,7 +698,7 @@ class WebhookManager:
                 retried_count = 0
                 for row in cursor.fetchall():
                     try:
-                        webhook_data = json.loads(row['webhook_data'])
+                        webhook_data = self._reconstruct_webhook_data(row['webhook_data'])
                         webhook_data['persistent_id'] = row['id']
                         webhook_data['retry_count'] = row['retry_count'] + 1
 

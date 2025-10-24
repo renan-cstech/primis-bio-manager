@@ -441,13 +441,7 @@ class BiometricRequestHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 log_error(f"Error validating timestamp conversion: {e}")
 
-            # Validate user ID range for primary device
-            if dev_id == hris_config.hris_config.PRIMARY_DEVICE_ID:
-                # Primary device (2401058352) should only accept users 1-8
-                if not (1 <= user_id <= 8):
-                    log_warning(f"Primary device {dev_id} received invalid user {user_id} (should be 1-8)")
-                    self.send_response_with_headers('ERROR_INVALID_USER')
-                    return
+            # Accept any valid user ID from the device (no hardcoded limits)
 
             # Apply alternating IN/OUT logic regardless of device
             from database import get_user_last_direction
@@ -774,154 +768,40 @@ def api_hris_status():
 @app.route('/api/biometric/logs', methods=['GET'])
 @require_api_auth
 def api_biometric_logs():
-    """Get attendance logs (HRIS-compatible format)"""
-    try:
-        # Parse query parameters
-        limit = request.args.get('limit', type=int)
-        offset = request.args.get('offset', 0, type=int)
-        user_id = request.args.get('user_id', type=int)
-        device_id = request.args.get('device_id')
-        primary_only = request.args.get('primary_only', type=bool, default=False)
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-
-        # Validate date range if provided
-        if start_date or end_date:
-            start_dt, end_dt = validate_date_range(start_date, end_date)
-        else:
-            start_dt, end_dt = None, None
-
-        # Get logs from database
-        if primary_only:
-            # Only get logs from primary device
-            logs = db.get_logs(limit=limit, offset=offset, device_id=hris_config.hris_config.PRIMARY_DEVICE_ID)
-        else:
-            logs = db.get_logs(limit=limit, offset=offset, device_id=device_id)
-
-        # Filter by user_id and date range if specified
-        filtered_logs = []
-        for log in logs:
-            # Filter by user_id
-            if user_id and log['user_id'] != user_id:
-                continue
-
-            # Filter by date range
-            if start_dt or end_dt:
-                try:
-                    log_datetime = datetime.strptime(log['datetime'], '%Y-%m-%d %H:%M:%S')
-                    if start_dt and log_datetime.date() < start_dt.date():
-                        continue
-                    if end_dt and log_datetime.date() > end_dt.date():
-                        continue
-                except Exception:
-                    continue
-
-            filtered_logs.append(log)
-
-        total = db.get_logs_count()
-
-        return jsonify({
-            'success': True,
-            'total': total,
-            'returned': len(filtered_logs),
-            'primary_device': hris_config.hris_config.PRIMARY_DEVICE_ID,
-            'logs': [{
-                'id': log['id'],
-                'user_id': log['user_id'],
-                'device_id': log['device_id'],
-                'device_type': 'PRIMARY' if log['device_id'] == hris_config.hris_config.PRIMARY_DEVICE_ID else 'SECONDARY',
-                'is_primary': log['device_id'] == hris_config.hris_config.PRIMARY_DEVICE_ID,
-                'timestamp': log['timestamp'],  # Original device timestamp
-                'datetime_utc': log.get('datetime_utc', log.get('datetime', '')),  # UTC time
-                'datetime_local': log.get('datetime_local', log.get('datetime', '')),  # Asia/Manila time
-                'timezone': log.get('timezone', 'UTC'),
-                'direction': 'in' if log['io_mode'] == 1 else 'out',
-                'verification_method': log['verify_mode_str'],
-                'created_at': log['created_at']
-            } for log in filtered_logs]
-        })
-
-    except ValueError as e:
-        return jsonify({'error': 'Bad Request', 'message': str(e)}), 400
-    except Exception as e:
-        log_error(f"Error in biometric logs API: {e}")
-        return jsonify({'error': 'Internal Server Error', 'message': 'Failed to retrieve logs'}), 500
+    """DISABLED: Get attendance logs (HRIS-compatible format)"""
+    # This endpoint is disabled in pure webhook mode
+    # HRIS should only receive data via automatic webhooks
+    return jsonify({
+        'success': False,
+        'message': 'Manual sync disabled - use automatic webhooks only',
+        'error': 'Pure webhook mode enabled'
+    }), 403
 
 
 @app.route('/api/biometric/users', methods=['GET'])
 @require_api_auth
 def api_biometric_users():
-    """Get enrolled users (HRIS-compatible format)"""
-    try:
-        limit = request.args.get('limit', type=int)
-        offset = request.args.get('offset', 0, type=int)
-        user_id = request.args.get('user_id', type=int)
-
-        if user_id:
-            # Get specific user
-            user = db.get_user_by_id(user_id)
-            if not user:
-                return jsonify({'error': 'Not Found', 'message': f'User {user_id} not found'}), 404
-            return jsonify({
-                'success': True,
-                'total': 1,
-                'returned': 1,
-                'users': [{
-                    'user_id': user['user_id'],
-                    'name': f'User {user["user_id"]}',  # Placeholder name
-                    'privilege': user['privilege'],
-                    'enabled': bool(user['enabled']),
-                    'biometric_enabled': True,  # Assuming enrolled if in database
-                    'updated_at': user['updated_at']
-                }]
-            })
-
-        # Get all users
-        users = db.get_users(limit=limit, offset=offset)
-        total = db.get_users_count()
-
-        return jsonify({
-            'success': True,
-            'total': total,
-            'returned': len(users),
-            'users': [{
-                'user_id': user['user_id'],
-                'name': f'User {user["user_id"]}',  # Placeholder name
-                'privilege': user['privilege'],
-                'enabled': bool(user['enabled']),
-                'biometric_enabled': True,  # Assuming enrolled if in database
-                'updated_at': user['updated_at']
-            } for user in users]
-        })
-
-    except Exception as e:
-        log_error(f"Error in biometric users API: {e}")
-        return jsonify({'error': 'Internal Server Error', 'message': 'Failed to retrieve users'}), 500
+    """DISABLED: Get enrolled users (HRIS-compatible format)"""
+    # This endpoint is disabled in pure webhook mode
+    # HRIS should only receive data via automatic webhooks
+    return jsonify({
+        'success': False,
+        'message': 'Manual sync disabled - use automatic webhooks only',
+        'error': 'Pure webhook mode enabled'
+    }), 403
 
 
 @app.route('/api/biometric/sync', methods=['POST'])
 @require_api_auth
 def api_biometric_sync():
-    """Sync user data from HRIS (HRIS-compatible format)"""
-    try:
-        data = request.get_json() or {}
-
-        # Process user updates
-        users_data = data.get('users', [])
-        if users_data:
-            # For now, just acknowledge - would need actual sync logic
-            log_info(f"Received sync request for {len(users_data)} users")
-
-        return jsonify({
-            'success': True,
-            'message': 'Sync request acknowledged',
-            'received_users': len(users_data),
-            'processed_at': datetime.now().isoformat()
-        })
-
-    except Exception as e:
-        log_error(f"Error in biometric sync API: {e}")
-        return jsonify({'error': 'Internal Server Error', 'message': 'Failed to process sync request'}), 500
+    """DISABLED: Sync user data from HRIS (HRIS-compatible format)"""
+    # This endpoint is disabled in pure webhook mode
+    # HRIS should only receive data via automatic webhooks
+    return jsonify({
+        'success': False,
+        'message': 'Manual sync disabled - use automatic webhooks only',
+        'error': 'Pure webhook mode enabled'
+    }), 403
 
 
 @app.route('/api/biometric/webhook/status', methods=['GET'])
@@ -971,9 +851,7 @@ def api_manual_attendance_log():
         except (ValueError, TypeError):
             return jsonify({'success': False, 'error': f'Invalid user_id format: {user_id_raw} (expected integer)'}), 400
 
-        # Validate user_id range for primary device (same as real processing)
-        if device_id == hris_config.hris_config.PRIMARY_DEVICE_ID and not (1 <= user_id <= 8):
-            return jsonify({'success': False, 'error': f'Invalid user_id {user_id} for primary device (should be 1-8)'}), 400
+        # Accept any valid user_id from any device (no hardcoded limits)
 
         # Generate timestamp (same logic as real device)
         io_time = data.get('timestamp', datetime.now().strftime('%Y%m%d%H%M%S'))
@@ -1227,12 +1105,10 @@ def api_biometric_status():
     duplicates = [uid for uid in set(user_ids) if user_ids.count(uid) > 1]
     duplicate_count = len(set(duplicates))
 
-    # Calculate device-specific statistics
+    # Calculate device-specific statistics (dynamic - no hardcoded user limits)
     primary_device_logs = [log for log in all_logs if log['device_id'] == hris_config.hris_config.PRIMARY_DEVICE_ID]
     primary_users = set([log['user_id'] for log in primary_device_logs])
-    expected_users = set(range(1, 9))  # Users 1-8
-    missing_users = expected_users - primary_users
-    extra_users = primary_users - expected_users
+    total_primary_users = len(primary_users)
 
     return jsonify({
         'success': True,
@@ -1254,12 +1130,10 @@ def api_biometric_status():
         } for device in devices] if devices else None,
         'alignment': {
             'primary_device_id': hris_config.hris_config.PRIMARY_DEVICE_ID,
-            'primary_device_name': 'Primary Terminal (Users 1-8)',
-            'expected_users': sorted(list(expected_users)),
+            'primary_device_name': 'Primary Terminal (Dynamic Users)',
+            'total_primary_users': total_primary_users,
             'primary_device_users': sorted(list(primary_users)),
-            'missing_users': sorted(list(missing_users)),
-            'extra_users': sorted(list(extra_users)),
-            'alignment_status': 'PERFECT' if not missing_users and not extra_users else 'NEEDS_ATTENTION'
+            'alignment_status': 'DYNAMIC'  # No hardcoded user limits
         },
         'connections': {
             'total_active_employees': total_active_employees,
@@ -1667,6 +1541,25 @@ def run_web_server():
     app.run(host='0.0.0.0', port=WEB_PORT, debug=False, use_reloader=False)
 
 
+# Refresh webhook manager config after environment loading
+def refresh_webhook_config():
+    """Refresh webhook manager config after .env loading"""
+    try:
+        from webhook_manager import webhook_manager
+        # Refresh the configuration
+        webhook_manager.refresh_config()
+        current_url = webhook_manager.config.WEBHOOK_URL
+        log_info(f"✅ Webhook manager config refreshed with URL: {current_url}")
+        if "192.168.1.106" in current_url or "localhost:5050" in current_url:
+            log_success("✅ Webhook configured correctly (HRIS server or local development receiver)")
+        else:
+            log_error(f"⚠️ Webhook URL may be incorrect: {current_url}")
+    except Exception as e:
+        log_error(f"❌ Failed to refresh webhook manager config: {e}")
+
+# Refresh webhook manager config
+refresh_webhook_config()
+
 def main():
     """Main entry point"""
     print(f"\n{Fore.CYAN}{'='*70}{Style.RESET_ALL}")
@@ -1725,19 +1618,19 @@ def api_webhook_receiver_biometric():
             attendance_data = payload.get('data', webhook_data)  # Fallback to direct data
 
             user_id = attendance_data.get('user_id', attendance_data.get('id', 'unknown'))
+
             # Properly extract direction with fallback logic
             direction = attendance_data.get('io_mode_str') or attendance_data.get('direction') or ('IN' if attendance_data.get('io_mode') == 1 else 'OUT' if attendance_data.get('io_mode') == 0 else 'unknown')
 
-            # Format timestamp properly - prioritize readable format from webhook payload
-            # Webhook sends: payload.timestamp_local (readable) and payload.timestamp (Unix int)
-            timestamp_local = payload.get('timestamp_local')  # From biometric server webhook
-            timestamp_unix = payload.get('timestamp')  # Unix timestamp (int)
+            # Format timestamp properly - webhook sends attendance_timestamp (UTC readable format)
+            attendance_timestamp = payload.get('attendance_timestamp')  # UTC time of attendance event
+            timestamp_unix = payload.get('timestamp')  # Unix timestamp when webhook was sent
             timestamp_data = attendance_data.get('timestamp')  # From data field
-            
-            # Priority: timestamp_local > timestamp_unix (convert) > timestamp_data
-            if timestamp_local and isinstance(timestamp_local, str) and ':' in timestamp_local:
-                # Already in readable format (YYYY-MM-DD HH:MM:SS)
-                timestamp = timestamp_local
+
+            # Priority: attendance_timestamp (UTC) > timestamp_unix (convert) > timestamp_data
+            if attendance_timestamp and isinstance(attendance_timestamp, str) and len(attendance_timestamp) > 10:
+                # Already in readable UTC format (YYYY-MM-DD HH:MM:SS)
+                timestamp = attendance_timestamp
             elif timestamp_unix and timestamp_unix != 'unknown':
                 # Convert Unix timestamp to readable format
                 try:
@@ -1753,11 +1646,13 @@ def api_webhook_receiver_biometric():
             else:
                 timestamp = 'unknown'
 
-            log_success(f"🎯 AUTO PROCESSED: Attendance for user {user_id} {direction} at {timestamp}")
+            # This is a webhook RECEIVER - it acknowledges receipt from external systems
+            # Database saving is handled by normal attendance processing, not here
+            log_success(f"📡 WEBHOOK RECEIVED: Attendance data from external system - User {user_id} {direction} at {timestamp}")
 
             return jsonify({
                 'success': True,
-                'message': 'Attendance data processed automatically',
+                'message': 'Webhook received and acknowledged from external system',
                 'processed_at': datetime.now().isoformat(),
                 'user_id': user_id,
                 'direction': direction,
