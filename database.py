@@ -13,7 +13,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DATABASE_PATH = 'biometric_data.db'
+DATABASE_PATH = 'biometric.db'
 
 
 @contextmanager
@@ -53,6 +53,20 @@ def init_database():
                 UNIQUE(device_id, user_id, timestamp)
             )
         ''')
+
+        # Add new timezone columns if they don't exist (migration)
+        try:
+            cursor.execute("PRAGMA table_info(attendance_logs)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'datetime_utc' not in columns:
+                cursor.execute('ALTER TABLE attendance_logs ADD COLUMN datetime_utc TEXT')
+            if 'datetime_local' not in columns:
+                cursor.execute('ALTER TABLE attendance_logs ADD COLUMN datetime_local TEXT')
+            if 'timezone' not in columns:
+                cursor.execute('ALTER TABLE attendance_logs ADD COLUMN timezone TEXT DEFAULT "UTC"')
+        except Exception as e:
+            logger.warning(f"Column migration may have failed: {e}")
 
         # Create users table
         cursor.execute('''
@@ -107,18 +121,62 @@ def init_database():
         logger.info("Database initialized successfully")
 
 
-def save_log(log_data: Dict[str, Any]) -> bool:
+# Cache for user directions to improve performance
+_user_direction_cache = {}
+
+def get_user_last_direction(user_id: int) -> str:
+    """Get the last direction (IN/OUT) for a user with caching"""
+    # Check cache first for better performance
+    if user_id in _user_direction_cache:
+        return _user_direction_cache[user_id]
+
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            # Optimized query with index-friendly ordering
+            cursor.execute('''
+                SELECT io_mode_str FROM attendance_logs
+                WHERE user_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+            ''', (user_id,))
+            result = cursor.fetchone()
+
+            direction = result[0] if result else None
+            # Cache the result for faster subsequent lookups
+            _user_direction_cache[user_id] = direction
+            return direction
+    except Exception as e:
+        logger.error(f"Error getting user last direction for user {user_id}: {e}")
+        return None
+
+
+def update_user_direction_cache(user_id: int, direction: str):
+    """Update the cache when a new log is saved"""
+    _user_direction_cache[user_id] = direction
+
+
+def clear_user_direction_cache():
+    """Clear cache (useful for maintenance)"""
+    global _user_direction_cache
+    _user_direction_cache.clear()
+    logger.info("User direction cache cleared")
+
+
+def save_log(log_data: Dict[str, Any]) -> tuple:
     """
     Save attendance log to database
-    Returns True if saved, False if duplicate
+    Returns (success: bool, is_duplicate: bool)
+    - success: True if operation completed without error
+    - is_duplicate: True if record was duplicate and ignored
     """
     try:
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR IGNORE INTO attendance_logs
-                (device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str, timestamp, datetime)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str, timestamp, datetime, datetime_utc, datetime_local, timezone)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 log_data.get('device_id', 'unknown'),
                 log_data['user_id'],
@@ -126,13 +184,24 @@ def save_log(log_data: Dict[str, Any]) -> bool:
                 log_data.get('io_mode_str', ''),
                 log_data.get('verify_mode', 0),
                 log_data.get('verify_mode_str', ''),
-                log_data['timestamp'],
-                log_data.get('datetime', '')
+                log_data['timestamp'],  # Original device timestamp
+                log_data.get('datetime_utc', ''),  # Legacy datetime field (same as UTC)
+                log_data.get('datetime_utc', ''),  # UTC datetime (primary)
+                log_data.get('datetime_local', ''),  # Local datetime (for display)
+                log_data.get('timezone', 'UTC')  # Timezone info
             ))
-            return cursor.rowcount > 0
+
+            # Check if it was inserted or ignored due to duplicate constraint
+            rows_affected = cursor.rowcount
+            is_duplicate = (rows_affected == 0)
+
+            # For our use case, both insertion and duplicate-ignore are "successful"
+            # The duplicate prevention is working as intended
+            return True, is_duplicate
+
     except Exception as e:
         logger.error(f"Error saving log: {e}")
-        return False
+        return False, False
 
 
 def save_logs_batch(logs: List[Dict[str, Any]]) -> int:
@@ -178,7 +247,7 @@ def get_logs(limit: Optional[int] = None, offset: int = 0, device_id: Optional[s
             if device_id:
                 if limit:
                     cursor.execute('''
-                        SELECT device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str,
+                        SELECT id, device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str,
                                timestamp, datetime, created_at
                         FROM attendance_logs
                         WHERE device_id = ?
@@ -187,8 +256,8 @@ def get_logs(limit: Optional[int] = None, offset: int = 0, device_id: Optional[s
                     ''', (device_id, limit, offset))
                 else:
                     cursor.execute('''
-                        SELECT device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str,
-                               timestamp, datetime, created_at
+                        SELECT id, device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str,
+                               timestamp, datetime, datetime_utc, datetime_local, timezone, created_at
                         FROM attendance_logs
                         WHERE device_id = ?
                         ORDER BY timestamp DESC
@@ -196,16 +265,16 @@ def get_logs(limit: Optional[int] = None, offset: int = 0, device_id: Optional[s
             else:
                 if limit:
                     cursor.execute('''
-                        SELECT device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str,
-                               timestamp, datetime, created_at
+                        SELECT id, device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str,
+                               timestamp, datetime, datetime_utc, datetime_local, timezone, created_at
                         FROM attendance_logs
                         ORDER BY timestamp DESC
                         LIMIT ? OFFSET ?
                     ''', (limit, offset))
                 else:
                     cursor.execute('''
-                        SELECT device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str,
-                               timestamp, datetime, created_at
+                        SELECT id, device_id, user_id, io_mode, io_mode_str, verify_mode, verify_mode_str,
+                               timestamp, datetime, datetime_utc, datetime_local, timezone, created_at
                         FROM attendance_logs
                         ORDER BY timestamp DESC
                     ''')
