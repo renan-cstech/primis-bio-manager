@@ -492,6 +492,7 @@
         <div class="tabs">
             <button class="tab active" onclick="switchTab('logs')">Attendance Logs</button>
             <button class="tab" onclick="switchTab('devices')">Device Management</button>
+            <button class="tab" onclick="switchTab('manual')">Manual Logs</button>
         </div>
 
         <!-- Logs Tab -->
@@ -541,6 +542,78 @@
                 </div>
             </div>
         </div>
+
+        <!-- Manual Logs Tab -->
+        <div class="tab-content" id="manualTab">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Manual Attendance Logs</h2>
+                    <p style="margin: 0; color: hsl(var(--muted-foreground)); font-size: 0.875rem;">Test HRIS integration by sending manual attendance logs</p>
+                </div>
+
+                <form id="manualLogForm" style="margin-bottom: 2rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                        <div>
+                            <label style="display: block; font-weight: 500; margin-bottom: 0.5rem;">Device ID</label>
+                            <select id="manualDeviceId" class="input" required>
+                                <option value="">Select Device</option>
+                                <option value="2401058350">2401058350</option>
+                                <option value="2401058352">2401058352</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-weight: 500; margin-bottom: 0.5rem;">User ID</label>
+                            <input type="number" id="manualUserId" class="input" placeholder="1-8" min="1" max="8" required>
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-weight: 500; margin-bottom: 0.5rem;">Direction</label>
+                            <select id="manualDirection" class="input" required>
+                                <option value="1">IN (Clock In)</option>
+                                <option value="0">OUT (Clock Out)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-weight: 500; margin-bottom: 0.5rem;">Verification Method</label>
+                            <select id="manualVerifyMode" class="input" required>
+                                <option value="1">Fingerprint</option>
+                                <option value="2">Password</option>
+                                <option value="3">ID Card</option>
+                                <option value="4">FP + Password</option>
+                                <option value="5">FP + ID Card</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-weight: 500; margin-bottom: 0.5rem;">Date</label>
+                            <input type="date" id="manualDate" class="input" required>
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-weight: 500; margin-bottom: 0.5rem;">Time</label>
+                            <input type="time" id="manualTime" class="input" required>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Send Manual Log to HRIS</button>
+                </form>
+
+                <div id="manualLogResults" style="display: none;">
+                    <h3 style="margin-bottom: 1rem;">Test Results</h3>
+                    <div id="manualLogStatus" class="card" style="background: hsl(var(--muted)); border-color: hsl(var(--border));">
+                        <div style="padding: 1rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <span id="manualLogIcon">⏳</span>
+                                <span id="manualLogTitle" style="font-weight: 500;">Processing...</span>
+                            </div>
+                            <div id="manualLogMessage" style="color: hsl(var(--muted-foreground)); font-size: 0.875rem;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -548,9 +621,11 @@
         let reconnectInterval = null;
         let devices = [];
         let logs = [];
+        let authToken = null;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
+            authenticateUser();
             connectWebSocket();
             loadInitialData();
         });
@@ -591,6 +666,34 @@
             ws.onerror = function(error) {
                 console.error('WebSocket error:', error);
             };
+        }
+
+        // Authentication
+        async function authenticateUser() {
+            try {
+                const response = await fetch('/api/auth/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        client_id: 'hris_system',
+                        client_secret: '1374e9cd7559048da4c6b13c600a9b9b9793609e88a79461b36d15f5f5f41961'
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok && data.success && data.token) {
+                    authToken = data.token;
+                    console.log('Authentication successful');
+                } else {
+                    console.error('Authentication failed:', data);
+                    showToast('Authentication Failed', 'Unable to authenticate with server');
+                }
+            } catch (error) {
+                console.error('Authentication error:', error);
+                showToast('Authentication Error', 'Network error during authentication');
+            }
         }
 
         function handleWebSocketMessage(data) {
@@ -850,6 +953,131 @@
             } else if (tab === 'devices') {
                 document.getElementById('devicesTab').classList.add('active');
                 loadDevices();
+            } else if (tab === 'manual') {
+                document.getElementById('manualTab').classList.add('active');
+                // Ensure authentication before initializing manual logs
+                if (authToken) {
+                    initializeManualLogs();
+                } else {
+                    showToast('Authentication Required', 'Please wait for authentication to complete');
+                    // Try to authenticate and retry
+                    authenticateUser().then(() => {
+                        if (authToken) {
+                            initializeManualLogs();
+                        }
+                    });
+                }
+            }
+        }
+
+        function initializeManualLogs() {
+            // Set default date/time to current
+            const now = new Date();
+            const dateInput = document.getElementById('manualDate');
+            const timeInput = document.getElementById('manualTime');
+
+            if (!dateInput.value) {
+                dateInput.value = now.toISOString().split('T')[0];
+            }
+
+            if (!timeInput.value) {
+                timeInput.value = now.toTimeString().slice(0, 5);
+            }
+
+            // Setup form submission
+            const form = document.getElementById('manualLogForm');
+            form.onsubmit = handleManualLogSubmit;
+        }
+
+        async function handleManualLogSubmit(event) {
+            event.preventDefault();
+
+            const formData = new FormData(event.target);
+            const manualLogResults = document.getElementById('manualLogResults');
+            const manualLogStatus = document.getElementById('manualLogStatus');
+            const manualLogIcon = document.getElementById('manualLogIcon');
+            const manualLogTitle = document.getElementById('manualLogTitle');
+            const manualLogMessage = document.getElementById('manualLogMessage');
+
+            // Show processing state
+            manualLogResults.style.display = 'block';
+            manualLogStatus.style.background = 'hsl(var(--muted))';
+            manualLogIcon.textContent = '⏳';
+            manualLogTitle.textContent = 'Sending Manual Log...';
+            manualLogMessage.textContent = 'Processing your manual attendance log and sending to HRIS...';
+
+            try {
+                // Collect form data
+                const deviceId = document.getElementById('manualDeviceId').value;
+                const userId = parseInt(document.getElementById('manualUserId').value);
+                const direction = parseInt(document.getElementById('manualDirection').value);
+                const verifyMode = parseInt(document.getElementById('manualVerifyMode').value);
+                const date = document.getElementById('manualDate').value;
+                const time = document.getElementById('manualTime').value;
+
+                // Create timestamp in YYYYMMDDHHMMSS format (Manila time)
+                const dateTimeStr = date.replace(/-/g, '') + time.replace(/:/g, '') + '00';
+
+                // Check if we have authentication token
+                if (!authToken) {
+                    throw new Error('Not authenticated. Please refresh the page.');
+                }
+
+                // Send to the manual log endpoint (simulates real device behavior)
+                const response = await fetch('/api/biometric/manual-log', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        device_id: deviceId,
+                        user_id: userId,
+                        io_mode: direction,
+                        verify_mode: verifyMode,
+                        timestamp: dateTimeStr
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    // Success
+                    manualLogStatus.style.background = 'hsl(142.1 76.2% 36.3% / 0.1)';
+                    manualLogIcon.textContent = '✅';
+                    manualLogTitle.textContent = 'Manual Log Sent Successfully!';
+                    manualLogMessage.innerHTML = `
+                        <strong>✅ Database:</strong> Log saved<br>
+                        <strong>✅ WebSocket:</strong> Real-time broadcast sent<br>
+                        <strong>✅ Webhook:</strong> Sent to HRIS system<br>
+                        <strong>📊 Details:</strong> User ${userId} - ${direction === 1 ? 'IN' : 'OUT'} via ${deviceId}<br>
+                        <strong>🕐 Time:</strong> ${result.timestamp} Manila
+                    `;
+
+                    // Refresh the logs tab to show the new entry
+                    if (document.getElementById('logsTab').classList.contains('active')) {
+                        loadLogs();
+                    }
+
+                    showToast('Manual Log Sent', `User ${userId} attendance logged successfully`);
+                } else {
+                    // API Error
+                    manualLogStatus.style.background = 'hsl(0 84.2% 60.2% / 0.1)';
+                    manualLogIcon.textContent = '❌';
+                    manualLogTitle.textContent = 'Manual Log Failed';
+                    manualLogMessage.textContent = result.error || 'Unknown error occurred';
+
+                    showToast('Manual Log Failed', result.error || 'Failed to send manual log');
+                }
+
+            } catch (error) {
+                // Network Error
+                manualLogStatus.style.background = 'hsl(0 84.2% 60.2% / 0.1)';
+                manualLogIcon.textContent = '❌';
+                manualLogTitle.textContent = 'Network Error';
+                manualLogMessage.textContent = `Failed to send manual log: ${error.message}`;
+
+                showToast('Network Error', 'Failed to connect to server');
             }
         }
 
